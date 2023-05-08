@@ -1,7 +1,13 @@
 import tkinter as tk
 from tkinter import filedialog
-from moviepy.editor import *
+from moviepy.editor import VideoFileClip, CompositeVideoClip, vfx
+from moviepy.editor import ImageClip
 import os
+
+# import sys
+# output = open("output.txt", "wt")
+# sys.stdout = output
+# sys.stderr = output
 
 class VideoProcessor:
     def __init__(self, root):
