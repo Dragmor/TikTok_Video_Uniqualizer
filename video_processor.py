@@ -84,11 +84,11 @@ class VideoProcessor:
         self.frame_scale.grid(row=1, column=1, padx=5, pady=5)
 
         self.crop_rectangle = self.crop_canvas.create_rectangle(3, 3, self.crop_width+3, self.crop_height+3, outline="red")
-        self.line1 = self.crop_canvas.create_line(3, 3, self.crop_width, self.crop_height, fill="red")
-        self.line2 = self.crop_canvas.create_line(3, self.crop_width, self.crop_height, 3, fill="red")
+        self.line1 = self.crop_canvas.create_line(3, 3, self.crop_width+3, self.crop_height+3, fill="red")
+        self.line2 = self.crop_canvas.create_line(3, self.crop_width+3, self.crop_height+3, 3, fill="red")
 
-        self.process_button = tk.Button(self.frame, text="старт!", command=self.process_video)
-        self.process_button.grid(row=6, column=1, padx=5, pady=5)
+        self.process_button = tk.Button(self.root, text="старт!", command=self.process_video)
+        self.process_button.grid(row=1, column=0, padx=5, pady=5, sticky="ew")
   
 
     def pre_start_configurate(self):
@@ -108,8 +108,6 @@ class VideoProcessor:
         # метод для выбора кадра в Canvas
         cap = cv2.VideoCapture(os.path.join(self.file_path, self.current_video_name))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        # print(101-int(value))
-        # print(total_frames//(100-int(value)))
         cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames//100*int(value))
         ret, frame = cap.read()
         frame = cv2.resize(frame, (self.new_canvas_w, self.new_canvas_h))
@@ -163,6 +161,7 @@ class VideoProcessor:
         self.crop_canvas.itemconfig(self.photo_frame, image=self.photo)
 
     def set_zoom(self, value):
+        # устанавливает зум
         self.zoom_factor = float(value) / 100
         # обновляем размеры квадрата
         self.crop_width = self.new_canvas_w+(100-int(value))
@@ -173,6 +172,7 @@ class VideoProcessor:
         self.crop_canvas.coords(self.line2, self.crop_x, self.crop_y + self.crop_height, self.crop_x + self.crop_width, self.crop_y)
 
     def change_image_field(self):
+        # накладывает self.current_image_name на Canvas
         self.image = Image.open(os.path.join(self.img_dir_path, self.current_image_name))
         self.image = self.image.resize((self.new_canvas_w, self.new_canvas_h), Image.ANTIALIAS) # Растянуть изображение до размеров холста
         self.image.putalpha(256)
@@ -233,10 +233,8 @@ class VideoProcessor:
             self.change_video_field()
             # делаю бинд мыши на холсте
             self.crop_canvas.bind("<B1-Motion>", self.update_crop_area)
-            self.alpha_scale.config(state="normal")
             self.zoom_scale.config(state="normal")
             self.frame_scale.config(state="normal")
-            self.process_button.config(state="normal")
             self.browse_img_dir_button.config(state="normal")
             # блокирую кнопку выбора каталога видео
             self.browse_file_button.config(state="disabled")
@@ -249,7 +247,6 @@ class VideoProcessor:
         self.img_dir_path_entry.delete(0, tk.END)
         self.img_dir_path_entry.insert(0, os.path.basename(self.img_dir_path))
         self.img_dir_path_entry.config(state="disabled")
-        self.browse_img_dir_button.config(state="disabled")
         if self.img_dir_path == "":
             return
         else:
@@ -260,6 +257,9 @@ class VideoProcessor:
             self.current_image_name = img_files[0]
             self.change_image_field()
             self.process_button.config(state="normal")
+            self.alpha_scale.config(state="normal")
+            self.process_button.config(state="normal", bg="lightgreen", font=("system", 12))
+            self.browse_img_dir_button.config(state="disabled")
 
 
 
@@ -322,8 +322,8 @@ if __name__ == "__main__":
     root = tk.Tk()
     # скрываю окно
     root.withdraw()
-    message = "Хотите запустить программу для работы в автоматическом режиме? Нажмите [нет] что-бы запустить в режиме ручной работы"
-    result = messagebox.askyesno("Заголовок окна", message)
+    message = "Хотите запустить программу для работы в автоматическом режиме? Нажмите [нет] чтобы запустить в режиме ручной работы"
+    result = messagebox.askyesno("Выбор режима", message)
     if result:
         mode = 'auto'
     else:
