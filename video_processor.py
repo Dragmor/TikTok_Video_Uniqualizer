@@ -16,14 +16,13 @@ class VideoProcessor:
         self.file_path = ""
         self.img_dir_path = ""
         self.alpha = 1
-        self.zoom_factor = 1.0
-        self.image_zoom_factor = 1.0
         self.crop_x = 0
         self.crop_y = 0
         self.crop_width = 198
         self.crop_height = 198
         self.new_canvas_w = 298
         self.new_canvas_h = 298
+        self.width_deform = 100
         # имя видео, которое выбрано в данный момент
         self.current_video_name = ""
         # имя картинки
@@ -38,13 +37,15 @@ class VideoProcessor:
         self.video_index = 0
         # список имён видео-файлов
         self.video_files = []
+        # список имён картинок
+        self.image_files = []
         # список параметров для ручной обработки
         self.vid_params = []
+        #
+        self.video_frame = None
 
         self.create_ui()
         self.pre_start_configurate()
-        if self.mode == "manual":
-            self.manual_mode_config()
 
     def create_ui(self):
         self.root.title("Video processor")
@@ -84,35 +85,42 @@ class VideoProcessor:
         self.alpha_scale = tk.Scale(self.frame_left, from_=0, to=100, resolution=1, orient=tk.HORIZONTAL, command=self.set_alpha)
         self.alpha_scale.grid(row=2, column=1, padx=5, pady=5, sticky="w")
 
-        self.zoom_label = tk.Label(self.frame_left, text="Масштабировать видео:")
+        self.zoom_label = tk.Label(self.frame_left, text="Обрезка видео:")
         self.zoom_label.grid(row=3, column=0, padx=5, pady=5, sticky="w")
 
         self.zoom_scale = tk.Scale(self.frame_left, from_=100, to=200, resolution=1, orient=tk.HORIZONTAL, command=self.set_zoom)
         self.zoom_scale.grid(row=3, column=1, padx=5, pady=5, sticky="w")
 
+        self.width_deform_label = tk.Label(self.frame_left, text="Растягивание по ширине:")
+        self.width_deform_label.grid(row=4, column=0, padx=5, pady=5, sticky="w")
+
+        self.width_deform_scale = tk.Scale(self.frame_left, from_=50, to=200, resolution=1, orient=tk.HORIZONTAL, command=self.set_width_deform)
+        self.width_deform_scale.grid(row=4, column=1, padx=5, pady=5, sticky="w")
+        self.width_deform_scale.set(100)
+
         self.codec_choice = tk.StringVar()
         self.codec_choice.set("auto")
 
         self.codec_auto_radio = tk.Radiobutton(self.frame_left, text="Автоматический выбор кодека", state="disabled", variable=self.codec_choice, value="auto")
-        self.codec_auto_radio.grid(row=4, column=0, padx=5, pady=5, sticky="w")
+        self.codec_auto_radio.grid(row=6, column=0, padx=5, pady=5, sticky="w")
 
         self.codec_mpeg4_radio = tk.Radiobutton(self.frame_left, text="Кодек MPEG4", state="disabled", variable=self.codec_choice, value="mpeg4")
-        self.codec_mpeg4_radio.grid(row=4, column=1, padx=5, pady=5, sticky="w")
+        self.codec_mpeg4_radio.grid(row=6, column=1, padx=5, pady=5, sticky="w")
 
         self.auto_bitrate = tk.BooleanVar()
         self.auto_bitrate.set(True)
         self.auto_bitrate_checkbutton = tk.Checkbutton(self.frame_left, text="Автоматический выбор битрейта", variable=self.auto_bitrate, state="disabled", command=self.toggle_bitrate_scale)
-        self.auto_bitrate_checkbutton.grid(row=6, column=0, padx=5, pady=5, sticky="w")
+        self.auto_bitrate_checkbutton.grid(row=8, column=0, padx=5, pady=5, sticky="w")
 
         self.bitrate_label = tk.Label(self.frame_left, text="Битрейт видео (кбит/с):")
         self.bitrate_scale = tk.Scale(self.frame_left, from_=1000, to=10000, resolution=100, orient=tk.HORIZONTAL, command=self.set_bitrate)
         self.bitrate_scale.set(self.bitrate)
 
         self.preset_label = tk.Label(self.frame_left, text="Качество кодирования видео:")
-        self.preset_label.grid(row=5, column=0, padx=5, pady=5, sticky="w")
+        self.preset_label.grid(row=7, column=0, padx=5, pady=5, sticky="w")
 
         self.preset_scale = tk.Scale(self.frame_left, from_=1, to=9, resolution=1, orient=tk.HORIZONTAL, command=self.set_preset)
-        self.preset_scale.grid(row=5, column=1, padx=5, pady=5, sticky="w")
+        self.preset_scale.grid(row=7, column=1, padx=5, pady=5, sticky="w")
         self.preset_scale.set(6)
         self.preset_scale.config(state="disabled")
 
@@ -138,7 +146,8 @@ class VideoProcessor:
         self.line2 = self.crop_canvas.create_line(3, self.crop_width+3, self.crop_height+3, 3, fill="red")
 
         self.process_button = tk.Button(self.root, text="старт!", command=self.process_video)
-        self.process_button.grid(row=1, column=0, padx=5, pady=5, sticky="ew")
+        if self.mode != "manual":
+            self.process_button.grid(row=1, column=0, padx=5, pady=5, sticky="ew")
 
     def set_preset(self, value):
         # выбор качества кодирования
@@ -147,10 +156,29 @@ class VideoProcessor:
         preset = preset_values[value]
         self.preset = preset  
 
+    def set_width_deform(self, value):
+        # изменение ширины видео
+        if self.video_frame == None:
+            return
+
+        self.width_deform = int(value)
+        new_width = self.width_deform/100 #ТУТ НУЖНО В ПРОЦЕНТЫ СДЕЛАТЬ
+
+        image = cv2.cvtColor(cv2.resize(self.frame, (int(self.new_canvas_w*new_width), self.new_canvas_h)), cv2.COLOR_BGR2RGB)
+        image = Image.fromarray(image)
+
+        
+        self.photo_image = ImageTk.PhotoImage(image)
+        # создаем Canvas и добавляем изображение
+        self.video_frame = self.crop_canvas.create_image(int(3+(self.new_canvas_w/2)-(self.new_canvas_w*new_width/2)), 3, anchor="nw", image=self.photo_image)
+        self.crop_canvas.lower(self.video_frame)
+
+
     def pre_start_configurate(self):
         # метод преднастроек элементов
         self.alpha_scale.config(state="disabled")
         self.zoom_scale.config(state="disabled")
+        self.width_deform_scale.config(state="disabled")
         self.frame_scale.config(state="disabled")
         self.process_button.config(state="disabled")
 
@@ -159,8 +187,8 @@ class VideoProcessor:
             self.bitrate_label.grid_forget()
             self.bitrate_scale.grid_forget()
         else:
-            self.bitrate_label.grid(row=7, column=0, padx=5, pady=5, sticky="w")
-            self.bitrate_scale.grid(row=7, column=1, padx=5, pady=5, sticky="w")
+            self.bitrate_label.grid(row=9, column=0, padx=5, pady=5, sticky="w")
+            self.bitrate_scale.grid(row=9, column=1, padx=5, pady=5, sticky="w")
 
 
     def set_bitrate(self, value):
@@ -168,15 +196,12 @@ class VideoProcessor:
         self.bitrate = int(value)
 
 
-    def manual_mode_config(self):
-        # метод для настройки окна под ручной режим
-        self.process_button.grid_forget()
-
     def next_video(self):
 
         if not len(self.video_files) <= self.video_index:
             self.label_counter.config(text=f"[{self.video_index+2}/{len(self.video_files)}]")
-            self.current_video_name = self.video_files[self.video_index]  
+            self.current_video_name = self.video_files[self.video_index]
+
             '''
 
             имя self.current_video_name
@@ -192,7 +217,9 @@ class VideoProcessor:
             self.video_index+=1
             self.current_video_name = self.video_files[self.video_index]
             self.change_video_field()
-            self.change_image_field()
+            if self.current_image_name != "":
+                self.change_image_field()
+
         if len(self.video_files) <= self.video_index+1:
             self.button_next.grid_forget()
             self.process_button.grid(row=1, column=0, padx=5, pady=5, sticky="ew")
@@ -203,14 +230,15 @@ class VideoProcessor:
         cap = cv2.VideoCapture(os.path.join(self.file_path, self.current_video_name))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames//100*int(value))
-        ret, frame = cap.read()
-        frame = cv2.resize(frame, (self.new_canvas_w, self.new_canvas_h))
-        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        ret, self.frame = cap.read()
+        self.frame = cv2.resize(self.frame, (self.new_canvas_w, self.new_canvas_h))
 
+        new_width = self.width_deform/100 #ТУТ НУЖНО В ПРОЦЕНТЫ СДЕЛАТЬ
+        image = cv2.cvtColor(cv2.resize(self.frame, (int(self.new_canvas_w*new_width), self.new_canvas_h)), cv2.COLOR_BGR2RGB)
         image = Image.fromarray(image)
         self.photo_image = ImageTk.PhotoImage(image)
         # создаем Canvas и добавляем изображение
-        self.video_frame = self.crop_canvas.create_image(3, 3, anchor="nw", image=self.photo_image)
+        self.video_frame = self.crop_canvas.create_image(int(3+(self.new_canvas_w/2)-(self.new_canvas_w*new_width/2)), 3, anchor="nw", image=self.photo_image)
         self.crop_canvas.lower(self.video_frame)
 
         cap.release()
@@ -255,11 +283,13 @@ class VideoProcessor:
         self.crop_canvas.itemconfig(self.photo_frame, image=self.photo)
 
     def set_zoom(self, value):
-        # устанавливает зум
-        self.zoom_factor = float(value) / 100
         # обновляем размеры квадрата
+        w_aspect = self.crop_canvas.winfo_height()/self.crop_canvas.winfo_width()
         self.crop_width = self.new_canvas_w+(100-int(value))
-        self.crop_height = self.new_canvas_h+(100-int(value))
+        self.crop_height = self.new_canvas_h+((100-int(value))*w_aspect)
+
+
+
         # обновляем координаты и размеры прямоугольника на Canvas
         self.crop_canvas.coords(self.crop_rectangle, self.crop_x, self.crop_y, self.crop_x + self.crop_width, self.crop_y + self.crop_height)
         self.crop_canvas.coords(self.line1, self.crop_x, self.crop_y, self.crop_x + self.crop_width, self.crop_y + self.crop_height)
@@ -273,6 +303,10 @@ class VideoProcessor:
         self.photo = ImageTk.PhotoImage(self.image)
         self.photo_frame = self.crop_canvas.create_image(0, 0, anchor="nw", image=self.photo) # Вставить изображение с полупрозрачностью
 
+        if self.image_files.index(self.current_image_name)+1 < len(self.image_files):
+            self.current_image_name = self.image_files[self.image_files.index(self.current_image_name)+1]
+        else:
+            self.current_image_name = self.image_files[0]
 
     def change_video_field(self):
         switcher = False
@@ -312,9 +346,9 @@ class VideoProcessor:
 
 
 
-        ret, frame = cap.read()
-        frame = cv2.resize(frame, (self.new_canvas_w, self.new_canvas_h))
-        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        ret, self.frame = cap.read()
+        self.frame = cv2.resize(self.frame, (self.new_canvas_w, self.new_canvas_h))
+        image = cv2.cvtColor(self.frame, cv2.COLOR_BGR2RGB)
 
         image = Image.fromarray(image)
         self.photo_image = ImageTk.PhotoImage(image)
@@ -344,6 +378,7 @@ class VideoProcessor:
             # делаю бинд мыши на холсте
             self.crop_canvas.bind("<B1-Motion>", self.update_crop_area)
             self.zoom_scale.config(state="normal")
+            self.width_deform_scale.config(state="normal")
             self.frame_scale.config(state="normal")
             self.browse_img_dir_button.config(state="normal")
             self.auto_bitrate_checkbutton.config(state="normal")
@@ -368,11 +403,11 @@ class VideoProcessor:
         if self.img_dir_path == "":
             return
         else:
-            img_files = list(filter(lambda path: path[-4:].lower() == ".png" or path[-4:].lower() == ".jpg", os.listdir(self.img_dir_path)))
-            if len(img_files) < 1:
+            self.image_files = list(filter(lambda path: path[-4:].lower() == ".png" or path[-4:].lower() == ".jpg" or path[-5:].lower() == ".jpeg", os.listdir(self.img_dir_path)))
+            if len(self.image_files) < 1:
                 return
             # добавляю кадр на Canvas
-            self.current_image_name = img_files[0]
+            self.current_image_name = self.image_files[0]
             self.change_image_field()
             self.alpha_scale.config(state="normal")
             self.browse_img_dir_button.config(state="disabled")
@@ -395,69 +430,72 @@ class VideoProcessor:
             self.current_video_name = self.video_files[-1]
             self.vid_params.append([self.current_video_name, self.alpha, self.crop_x*2, self.crop_y*2, self.crop_x*2+(self.crop_width*2), self.crop_y*2+(self.crop_height*2)])
 
-        # если не указано изображение
+        # если указано изображение
         if self.img_dir_path != "":
             # Get list of image files in directory
-            img_files = list(filter(lambda path: path[-4:].lower() == ".jpg" or path[-4:].lower() == ".png" or path[-5:].lower() == ".jpeg", os.listdir(self.img_dir_path)))
-            cycled_list = itertools.cycle(img_files)
-
+            cycled_list = itertools.cycle(self.image_files)
+        root.withdraw()
         # Loop through each image file and process video
         for i, vid_file in enumerate(self.video_files):
-            # Get video and audio clips
-            if self.mode == "manual":
-                video_clip = VideoFileClip(os.path.join(self.file_path, self.vid_params[i][0]))
-            else:
-                video_clip = VideoFileClip(os.path.join(self.file_path,vid_file))
-            audio_clip = video_clip.audio
-
-            # Get width and height of video clip
-            width, height = video_clip.size
-
-            # если не указано изображение
-            if self.img_dir_path != "":
-                # Get full path of image file
-                img_name = next(cycled_list)
-                img_path = os.path.join(self.img_dir_path, img_name)
-                # Load image and resize
-                img = ImageClip(img_path).resize((width, height))
-
-                # Set alpha of image
+            try:
+                # Get video and audio clips
                 if self.mode == "manual":
-                    img = img.set_opacity(self.vid_params[i][1])
+                    video_clip = VideoFileClip(os.path.join(self.file_path, self.vid_params[i][0]))
                 else:
-                    img = img.set_opacity(self.alpha)
-            if self.mode == "manual":
-                video_clip_cropped = video_clip.crop(x1=self.vid_params[i][2], y1=self.vid_params[i][3], x2=self.vid_params[i][4], y2=self.vid_params[i][5])
-            else:
-                video_clip_cropped = video_clip.crop(x1=self.crop_x*2, y1=self.crop_y*2, x2=self.crop_x*2+(self.crop_width*2), y2=self.crop_y*2+(self.crop_height*2))
-            video_resized = video_clip_cropped.resize((width, height))
-            # если не указано изображение
-            if self.img_dir_path != "":
-                # Overlay image on video
-                img = img.set_duration(video_resized.duration)
-                final_video = CompositeVideoClip([video_resized, img])
-            else:
-                final_video = video_resized
+                    video_clip = VideoFileClip(os.path.join(self.file_path,vid_file))
+                audio_clip = video_clip.audio
 
-            # Set audio to the final video
-            final_video = final_video.set_audio(audio_clip)
+                # Get width and height of video clip
+                width, height = video_clip.size
 
-            # Export video
-            if not os.path.isdir(os.path.normpath(os.path.join(self.file_path,"output"))):
-                os.mkdir(os.path.normpath(os.path.join(self.file_path,"output")))
-            if self.mode == "manual":
-                output_file = os.path.normpath(os.path.join(self.file_path, f"output/{os.path.splitext(self.vid_params[i][0])[0]}.mp4"))
-            else:
-                output_file = os.path.normpath(os.path.join(self.file_path, f"output/{os.path.splitext(vid_file)[0]}.mp4"))
-            # определяем, какой кодек использовать
-            codec = None
-            if self.codec_choice.get() == "mpeg4":
-                codec = "mpeg4"
-            bitrate = self.bitrate
-            if self.auto_bitrate.get():
-                bitrate = self.default_bitrate
+                # если не указано изображение
+                if self.img_dir_path != "":
+                    # Get full path of image file
+                    img_name = next(cycled_list)
+                    img_path = os.path.join(self.img_dir_path, img_name)
+                    # Load image and resize
+                    img = ImageClip(img_path).resize((width, height))
 
-            final_video.write_videofile(output_file, codec=codec, preset=self.preset, bitrate=f"{bitrate}k")
+                    # Set alpha of image
+                    if self.mode == "manual":
+                        img = img.set_opacity(self.vid_params[i][1])
+                    else:
+                        img = img.set_opacity(self.alpha)
+                if self.mode == "manual":
+                    video_clip_cropped = video_clip.crop(x1=self.vid_params[i][2], y1=self.vid_params[i][3], x2=self.vid_params[i][4], y2=self.vid_params[i][5])
+                else:
+                    video_clip_cropped = video_clip.crop(x1=self.crop_x*2, y1=self.crop_y*2, x2=self.crop_x*2+(self.crop_width*2), y2=self.crop_y*2+(self.crop_height*2))
+                video_resized = video_clip_cropped.resize((width, height))
+                # если не указано изображение
+                if self.img_dir_path != "":
+                    # Overlay image on video
+                    img = img.set_duration(video_resized.duration)
+                    final_video = CompositeVideoClip([video_resized, img])
+                else:
+                    final_video = video_resized
+
+                # Set audio to the final video
+                final_video = final_video.set_audio(audio_clip)
+
+                # Export video
+                if not os.path.isdir(os.path.normpath(os.path.join(self.file_path,"output"))):
+                    os.mkdir(os.path.normpath(os.path.join(self.file_path,"output")))
+                if self.mode == "manual":
+                    output_file = os.path.normpath(os.path.join(self.file_path, f"output/{os.path.splitext(self.vid_params[i][0])[0]}.mp4"))
+                else:
+                    output_file = os.path.normpath(os.path.join(self.file_path, f"output/{os.path.splitext(vid_file)[0]}.mp4"))
+                # определяем, какой кодек использовать
+                codec = None
+                if self.codec_choice.get() == "mpeg4":
+                    codec = "mpeg4"
+                bitrate = self.bitrate
+                if self.auto_bitrate.get():
+                    bitrate = self.default_bitrate
+                final_video.write_videofile(output_file, codec=codec, preset=self.preset, bitrate=f"{bitrate}k")
+            except:
+                print("Произошла ошибка при обработке видео!")
+        #
+        root.deiconify() # Показать окно
 
 if __name__ == "__main__":
 
@@ -474,17 +512,8 @@ if __name__ == "__main__":
     app = VideoProcessor(root, mode)
     root.mainloop()
 '''
- (кнопка, при нажатии которой в рабочей области кадр из видео сменяется другим кадром из этого же видео)
-
-manual_mode_config(self): метод для первичной настройки окна под ручной режим
-
-
- счетчик всех видео и какое конкретно отображается в рабочей области(пример 16/1998/15, где 16- это видео 
- по порядку в папке, 1998 общее число видео, а 15 это на скольких видео установлены индивидуальные параметры) 
- и кнопка сохранить для сохранения параметра конкретно для этого видео
-
- Если на какое то я не нажал сохранить, то при нажатии на старт прога не запускалась, а писала, что не для всех 
- видео установлены индивидуальные параметры и перекидывалась в рабочую область видео без установленных параметров
-
  добавить иконку для гл. окна в if name == main!
+
+ По поводу параметров, нужно чтобы я не смог к следующему видео перейти пока не изменю хоть какой нибудь параметр, 
+ а то я могу по инерции прощелкать, а как мы знаем, одно видео может убить весь канал!
 '''
