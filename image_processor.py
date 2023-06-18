@@ -1,6 +1,7 @@
 import os
 from tkinter import filedialog, Tk, Label, Button, Scale, Radiobutton, IntVar
 from PIL import Image
+import sys
 
 class ImageProcessor:
     def __init__(self):
@@ -32,6 +33,8 @@ class ImageProcessor:
         output_dir = os.path.join(directory, "output")
         os.makedirs(output_dir, exist_ok=True)
         img_index = 1
+        # скрываю окно
+        self.root.withdraw()
         for filename in os.listdir(directory):
             if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
                 image = Image.open(os.path.join(directory, filename))
@@ -40,6 +43,7 @@ class ImageProcessor:
                 img_index+=1
                 print("\n")
         print("Готово!")
+        self.root.deiconify() # Показать окно
 
     def choose_directory_and_process_images(self, scale_factor):
         directory = filedialog.askdirectory()
@@ -54,6 +58,15 @@ class ImageProcessor:
 
     def create_main_window(self):
         self.root = Tk()
+        #пытаюсь установить иконку
+        try:
+            try:
+                base_path = sys._MEIPASS
+            except Exception:
+                base_path = os.path.abspath(".")
+            self.root.wm_iconbitmap(os.path.join(base_path, "icon.ico"))
+        except:
+            pass
         self.root.title("Image Processor")
         var = IntVar()
         var.set(2)
@@ -65,7 +78,7 @@ class ImageProcessor:
         Radiobutton(self.root, text="Сохранять в формате JPG", variable=var, value=1, command=lambda:self.set_image_format(var.get())).pack(padx=10, pady=10)
         Radiobutton(self.root, text="Сохранять в формате PNG", variable=var, value=2, command=lambda:self.set_image_format(var.get())).pack(padx=10, pady=10)
 
-        Button(self.root, text="Выберите папку и обработайте изображения", command=lambda: self.choose_directory_and_process_images(scale.get() / 100)).pack(padx=10, pady=10)
+        Button(self.root, text="Выберите папку и обработайте изображения", bg="lightgreen", command=lambda: self.choose_directory_and_process_images(scale.get() / 100)).pack(padx=10, pady=10)
 
         self.root.mainloop()
 

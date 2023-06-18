@@ -3,7 +3,6 @@ from tkinter import filedialog, messagebox
 from moviepy.editor import VideoFileClip, CompositeVideoClip, vfx
 from moviepy.editor import ImageClip
 import os
-import sys
 import itertools
 from PIL import Image, ImageTk
 import cv2
@@ -44,8 +43,6 @@ class VideoProcessor:
         self.vid_params = []
         #
         self.video_frame = None
-        #
-        self.crop_x_2 = self.crop_x + self.crop_width
 
         self.create_ui()
         self.pre_start_configurate()
@@ -85,9 +82,8 @@ class VideoProcessor:
         self.alpha_label = tk.Label(self.frame_left, text="Прозрачность картинки:")
         self.alpha_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
 
-        self.alpha_scale = tk.Scale(self.frame_left, from_=100, to=0, resolution=1, orient=tk.HORIZONTAL, command=self.set_alpha)
+        self.alpha_scale = tk.Scale(self.frame_left, from_=0, to=100, resolution=1, orient=tk.HORIZONTAL, command=self.set_alpha)
         self.alpha_scale.grid(row=2, column=1, padx=5, pady=5, sticky="w")
-        self.alpha_scale.set(50)
 
         self.zoom_label = tk.Label(self.frame_left, text="Обрезка видео:")
         self.zoom_label.grid(row=3, column=0, padx=5, pady=5, sticky="w")
@@ -95,10 +91,10 @@ class VideoProcessor:
         self.zoom_scale = tk.Scale(self.frame_left, from_=100, to=200, resolution=1, orient=tk.HORIZONTAL, command=self.set_zoom)
         self.zoom_scale.grid(row=3, column=1, padx=5, pady=5, sticky="w")
 
-        self.width_deform_label = tk.Label(self.frame_left, text="Деформация:")
+        self.width_deform_label = tk.Label(self.frame_left, text="Растягивание по ширине:")
         self.width_deform_label.grid(row=4, column=0, padx=5, pady=5, sticky="w")
 
-        self.width_deform_scale = tk.Scale(self.frame_left, from_=50, to=150, resolution=1, orient=tk.HORIZONTAL, command=self.set_width_deform)
+        self.width_deform_scale = tk.Scale(self.frame_left, from_=50, to=200, resolution=1, orient=tk.HORIZONTAL, command=self.set_width_deform)
         self.width_deform_scale.grid(row=4, column=1, padx=5, pady=5, sticky="w")
         self.width_deform_scale.set(100)
 
@@ -167,14 +163,15 @@ class VideoProcessor:
 
         self.width_deform = int(value)
         new_width = self.width_deform/100
-        self.crop_x_2 = self.crop_x+(self.crop_width*new_width)
 
-        # обновляем координаты и размеры прямоугольника на Canvas
-        self.crop_canvas.coords(self.crop_rectangle, self.crop_x, self.crop_y, self.crop_x_2, self.crop_y + self.crop_height)
-        self.crop_canvas.coords(self.line1, self.crop_x, self.crop_y, self.crop_x_2, self.crop_y + self.crop_height)
-        self.crop_canvas.coords(self.line2, self.crop_x_2, self.crop_y, self.crop_x, self.crop_y + self.crop_height) 
+        image = cv2.cvtColor(cv2.resize(self.frame, (int(self.new_canvas_w*new_width), self.new_canvas_h)), cv2.COLOR_BGR2RGB)
+        image = Image.fromarray(image)
 
-
+        
+        self.photo_image = ImageTk.PhotoImage(image)
+        # создаем Canvas и добавляем изображение
+        self.video_frame = self.crop_canvas.create_image(int(3+(self.new_canvas_w/2)-(self.new_canvas_w*new_width/2)), 3, anchor="nw", image=self.photo_image)
+        self.crop_canvas.lower(self.video_frame)
 
 
     def pre_start_configurate(self):
@@ -202,7 +199,7 @@ class VideoProcessor:
     def next_video(self):
         # проверка, были-ли изменены параметры для видео по сравнению с предыдущим
         if len(self.vid_params)>0:
-            if self.vid_params[-1][1:] == [self.alpha, self.crop_x*2, self.crop_y*2, int(self.crop_x_2*2), self.crop_y*2+(self.crop_height*2)]:
+            if self.vid_params[-1][1:] == [self.alpha, self.crop_x*2, self.crop_y*2, self.crop_x*2+(self.crop_width*2), self.crop_y*2+(self.crop_height*2), self.width_deform]:
                 result = messagebox.askyesno("Предупреждение", "Параметры видео такие-же, как у предыдущего! Продолжить?")
                 if not result:
                     return
@@ -211,21 +208,28 @@ class VideoProcessor:
             self.label_counter.config(text=f"[{self.video_index+2}/{len(self.video_files)}]")
             self.current_video_name = self.video_files[self.video_index]
 
+
+
             '''
+
             имя self.current_video_name
             прозрачность self.alpha
             x1 self.crop_x*2
             y1 self.crop_y*2
             x2 self.crop_x*2+(self.crop_width*2)
             y2 self.crop_y*2+(self.crop_height*2)
+            растягивание по ширине self.width_deform
+
             '''
 
-            self.vid_params.append([self.current_video_name, self.alpha, self.crop_x*2, self.crop_y*2, int(self.crop_x_2*2), self.crop_y*2+(self.crop_height*2)])
+            self.vid_params.append([self.current_video_name, self.alpha, self.crop_x*2, self.crop_y*2, self.crop_x*2+(self.crop_width*2), self.crop_y*2+(self.crop_height*2), self.width_deform])
             self.video_index+=1
             self.current_video_name = self.video_files[self.video_index]
             self.change_video_field()
             if self.current_image_name != "":
                 self.change_image_field()
+
+            print(self.vid_params[-1])
 
         if len(self.video_files) <= self.video_index+1:
             self.button_next.grid_forget()
@@ -238,13 +242,13 @@ class VideoProcessor:
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames//100*int(value))
         ret, self.frame = cap.read()
-        self.frame = cv2.resize(self.frame, (self.new_canvas_w, self.new_canvas_h))
-        image = cv2.cvtColor(self.frame, cv2.COLOR_BGR2RGB)
 
+        new_width = self.width_deform/100
+        image = cv2.cvtColor(cv2.resize(self.frame, (int(self.new_canvas_w*new_width), self.new_canvas_h)), cv2.COLOR_BGR2RGB)
         image = Image.fromarray(image)
         self.photo_image = ImageTk.PhotoImage(image)
         # создаем Canvas и добавляем изображение
-        self.video_frame = self.crop_canvas.create_image(3, 3, anchor="nw", image=self.photo_image)
+        self.video_frame = self.crop_canvas.create_image(int(3+(self.new_canvas_w/2)-(self.new_canvas_w*new_width/2)), 3, anchor="nw", image=self.photo_image)
         self.crop_canvas.lower(self.video_frame)
 
         cap.release()
@@ -255,17 +259,16 @@ class VideoProcessor:
         # вычисляем новые координаты квадрата
         new_x = event.x
         new_y = event.y
-
+        new_width = self.crop_width
         new_height = self.crop_height
-        new_width = self.width_deform/100
 
         # проверяем, чтобы квадрат не выходил за пределы Canvas
         if new_x < 1:
             new_x = 1
         if new_y < 1:
             new_y = 1
-        if new_x+(self.crop_width*new_width) > self.crop_canvas.winfo_width():
-            new_x = self.crop_canvas.winfo_width() - (self.crop_width*new_width)
+        if new_x + new_width > self.crop_canvas.winfo_width():
+            new_x = self.crop_canvas.winfo_width() - new_width
         if new_y + new_height > self.crop_canvas.winfo_height():
             new_y = self.crop_canvas.winfo_height() - new_height
 
@@ -273,16 +276,12 @@ class VideoProcessor:
         self.crop_x = new_x
         self.crop_y = new_y
 
-        self.crop_x_2 = self.crop_x+(self.crop_width*new_width)
-
         # обновляем координаты и размеры прямоугольника на Canvas
-        self.crop_canvas.coords(self.crop_rectangle, self.crop_x, self.crop_y, self.crop_x_2, self.crop_y + self.crop_height)
-        self.crop_canvas.coords(self.line1, self.crop_x, self.crop_y, self.crop_x_2, self.crop_y + self.crop_height)
-        self.crop_canvas.coords(self.line2, self.crop_x_2, self.crop_y, self.crop_x, self.crop_y + self.crop_height)    
-
+        self.crop_canvas.coords(self.crop_rectangle, self.crop_x, self.crop_y, self.crop_x + self.crop_width, self.crop_y + self.crop_height)
+        self.crop_canvas.coords(self.line1, self.crop_x, self.crop_y, self.crop_x + self.crop_width, self.crop_y + self.crop_height)
+        self.crop_canvas.coords(self.line2, self.crop_x, self.crop_y + self.crop_height, self.crop_x + self.crop_width, self.crop_y)
+    
     def set_alpha(self, value):
-        if self.img_dir_path == "":
-            return
         # задаёт прозрачность для картинки
         if int(value) == 0:
             self.alpha = 1
@@ -299,15 +298,12 @@ class VideoProcessor:
         self.crop_width = self.new_canvas_w+(100-int(value))
         self.crop_height = self.new_canvas_h+((100-int(value))*w_aspect)
 
-        new_width = self.width_deform/100
 
-        self.crop_x_2 = self.crop_x+(self.crop_width*new_width)
 
         # обновляем координаты и размеры прямоугольника на Canvas
-        self.crop_canvas.coords(self.crop_rectangle, self.crop_x, self.crop_y, self.crop_x_2, self.crop_y + self.crop_height)
-        self.crop_canvas.coords(self.line1, self.crop_x, self.crop_y, self.crop_x_2, self.crop_y + self.crop_height)
-        self.crop_canvas.coords(self.line2, self.crop_x_2, self.crop_y, self.crop_x, self.crop_y + self.crop_height) 
-
+        self.crop_canvas.coords(self.crop_rectangle, self.crop_x, self.crop_y, self.crop_x + self.crop_width, self.crop_y + self.crop_height)
+        self.crop_canvas.coords(self.line1, self.crop_x, self.crop_y, self.crop_x + self.crop_width, self.crop_y + self.crop_height)
+        self.crop_canvas.coords(self.line2, self.crop_x, self.crop_y + self.crop_height, self.crop_x + self.crop_width, self.crop_y)
 
     def change_image_field(self):
         # накладывает self.current_image_name на Canvas
@@ -315,7 +311,7 @@ class VideoProcessor:
         self.image = self.image.resize((self.new_canvas_w, self.new_canvas_h), Image.ANTIALIAS) # Растянуть изображение до размеров холста
         self.image.putalpha(int((100-int(self.alpha_scale.get()))*2.56))
         self.photo = ImageTk.PhotoImage(self.image)
-        self.photo_frame = self.crop_canvas.create_image(2, 2, anchor="nw", image=self.photo) # Вставить изображение с полупрозрачностью
+        self.photo_frame = self.crop_canvas.create_image(0, 0, anchor="nw", image=self.photo) # Вставить изображение с полупрозрачностью
 
         if self.image_files.index(self.current_image_name)+1 < len(self.image_files):
             self.current_image_name = self.image_files[self.image_files.index(self.current_image_name)+1]
@@ -351,33 +347,23 @@ class VideoProcessor:
             #
             self.crop_x = 0
             self.crop_y = 0
-            new_width = self.width_deform/100
-
-            self.crop_x_2 = (self.crop_x + self.crop_width)*new_width
-
             # обновляем координаты и размеры прямоугольника на Canvas
-            self.crop_canvas.coords(self.crop_rectangle, self.crop_x, self.crop_y, self.crop_x_2, self.crop_y + self.crop_height)
-            self.crop_canvas.coords(self.line1, self.crop_x, self.crop_y, self.crop_x_2, self.crop_y + self.crop_height)
-            self.crop_canvas.coords(self.line2, self.crop_x_2, self.crop_y, self.crop_x, self.crop_y + self.crop_height)     
-            
+            self.crop_canvas.coords(self.crop_rectangle, self.crop_x, self.crop_y, self.crop_x + self.crop_width, self.crop_y + self.crop_height)
+            self.crop_canvas.coords(self.line1, self.crop_x, self.crop_y, self.crop_x + self.crop_width, self.crop_y + self.crop_height)
+            self.crop_canvas.coords(self.line2, self.crop_x, self.crop_y + self.crop_height, self.crop_x + self.crop_width, self.crop_y)
             # сбрасываю значение ползунка зума
             self.zoom_scale.set(100)
-
-            # сбрасываю значение ползунка деформации
-            self.width_deform_scale.set(100)
-            self.width_deform = 100
 
 
 
         ret, self.frame = cap.read()
-        self.frame = cv2.resize(self.frame, (self.new_canvas_w, self.new_canvas_h))
-        image = cv2.cvtColor(self.frame, cv2.COLOR_BGR2RGB)
 
+        new_width = self.width_deform/100
+        image = cv2.cvtColor(cv2.resize(self.frame, (int(self.new_canvas_w*new_width), self.new_canvas_h)), cv2.COLOR_BGR2RGB)
         image = Image.fromarray(image)
         self.photo_image = ImageTk.PhotoImage(image)
-
         # создаем Canvas и добавляем изображение
-        self.video_frame = self.crop_canvas.create_image(3, 3, anchor="nw", image=self.photo_image)
+        self.video_frame = self.crop_canvas.create_image(int(3+(self.new_canvas_w/2)-(self.new_canvas_w*new_width/2)), 3, anchor="nw", image=self.photo_image)
         self.crop_canvas.lower(self.video_frame)
 
         cap.release()
@@ -451,7 +437,7 @@ class VideoProcessor:
         if self.mode == "manual":
             # добавляем в список последнее видео
             self.current_video_name = self.video_files[-1]
-            self.vid_params.append([self.current_video_name, self.alpha, self.crop_x*2, self.crop_y*2, int(self.crop_x_2*2), self.crop_y*2+(self.crop_height*2)])
+            self.vid_params.append([self.current_video_name, self.alpha, self.crop_x*2, self.crop_y*2, self.crop_x*2+(self.crop_width*2), self.crop_y*2+(self.crop_height*2), self.width_deform])
 
         # если указано изображение
         if self.img_dir_path != "":
@@ -487,7 +473,7 @@ class VideoProcessor:
                 if self.mode == "manual":
                     video_clip_cropped = video_clip.crop(x1=self.vid_params[i][2], y1=self.vid_params[i][3], x2=self.vid_params[i][4], y2=self.vid_params[i][5])
                 else:
-                    video_clip_cropped = video_clip.crop(x1=self.crop_x*2, y1=self.crop_y*2, x2=int(self.crop_x_2*2), y2=self.crop_y*2+(self.crop_height*2))
+                    video_clip_cropped = video_clip.crop(x1=self.crop_x*2, y1=self.crop_y*2, x2=self.crop_x*2+(self.crop_width*2), y2=self.crop_y*2+(self.crop_height*2))
                 video_resized = video_clip_cropped.resize((width, height))
                 # если не указано изображение
                 if self.img_dir_path != "":
@@ -523,15 +509,6 @@ class VideoProcessor:
 if __name__ == "__main__":
 
     root = tk.Tk()
-    #пытаюсь установить иконку
-    try:
-        try:
-            base_path = sys._MEIPASS
-        except Exception:
-            base_path = os.path.abspath(".")
-        root.wm_iconbitmap(os.path.join(base_path, "icon.ico"))
-    except:
-        pass
     # скрываю окно
     root.withdraw()
     message = "Хотите запустить программу для работы в автоматическом режиме? Нажмите [нет] чтобы запустить в режиме ручной работы"
@@ -543,3 +520,9 @@ if __name__ == "__main__":
     root.deiconify() # Показать окно
     app = VideoProcessor(root, mode)
     root.mainloop()
+'''
+ добавить иконку для гл. окна в if name == main!
+
+ По поводу параметров, нужно чтобы я не смог к следующему видео перейти пока не изменю хоть какой нибудь параметр, 
+ а то я могу по инерции прощелкать, а как мы знаем, одно видео может убить весь канал!
+'''
