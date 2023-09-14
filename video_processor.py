@@ -2,11 +2,14 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from moviepy.editor import VideoFileClip, CompositeVideoClip, vfx
 from moviepy.editor import ImageClip
+from PIL import Image, ImageTk
+import cv2
 import os
 import sys
 import itertools
-from PIL import Image, ImageTk
-import cv2
+import multiprocessing
+from functools import partial
+
 
 
 class VideoProcessor:
@@ -16,7 +19,7 @@ class VideoProcessor:
         self.mode = mode 
         self.file_path = ""
         self.img_dir_path = ""
-        self.alpha = 1
+        self.alpha = 0.1
         self.crop_x = 0
         self.crop_y = 0
         self.crop_width = 198
@@ -87,7 +90,7 @@ class VideoProcessor:
 
         self.alpha_scale = tk.Scale(self.frame_left, from_=100, to=0, resolution=1, orient=tk.HORIZONTAL, command=self.set_alpha)
         self.alpha_scale.grid(row=2, column=1, padx=5, pady=5, sticky="w")
-        self.alpha_scale.set(50)
+        self.alpha_scale.set(90)
 
         self.zoom_label = tk.Label(self.frame_left, text="Обрезка видео:")
         self.zoom_label.grid(row=3, column=0, padx=5, pady=5, sticky="w")
@@ -128,6 +131,13 @@ class VideoProcessor:
         self.preset_scale.set(6)
         self.preset_scale.config(state="disabled")
 
+        text = tk.Label(self.frame_left, text="Количество потоков:")
+        text.grid(row=10, column=0, padx=5, pady=5, sticky="w")
+
+        self.thread_scale = tk.Scale(self.frame_left, from_=1, to=32, resolution=1, orient=tk.HORIZONTAL)
+        self.thread_scale.grid(row=10, column=1, padx=5, pady=5, sticky="w")
+        self.thread_scale.set(4)
+
         #---------------------------------------------------------------------------------------------------------------------------------#
         self.crop_canvas = tk.Canvas(self.frame_right, width=200, height=200, bg="black")
         self.crop_canvas.grid(row=0, column=0, padx=5, pady=5)
@@ -149,9 +159,9 @@ class VideoProcessor:
         self.line1 = self.crop_canvas.create_line(3, 3, self.crop_width+3, self.crop_height+3, fill="red")
         self.line2 = self.crop_canvas.create_line(3, self.crop_width+3, self.crop_height+3, 3, fill="red")
 
-        self.process_button = tk.Button(self.root, text="старт!", command=self.process_video)
+        self.process_button = tk.Button(self.frame_left, text="старт!", command=self.process_video)
         if self.mode != "manual":
-            self.process_button.grid(row=1, column=0, padx=5, pady=5, sticky="ew")
+            self.process_button.grid(row=12, column=0, padx=5, pady=5, sticky="ew", columnspan=2)
 
     def set_preset(self, value):
         # выбор качества кодирования
@@ -229,7 +239,7 @@ class VideoProcessor:
 
         if len(self.video_files) <= self.video_index+1:
             self.button_next.grid_forget()
-            self.process_button.grid(row=1, column=0, padx=5, pady=5, sticky="ew")
+            self.process_button.grid(row=12, column=0, padx=5, pady=5, sticky="ew")
 
 
     def set_frame(self, value):
@@ -457,68 +467,120 @@ class VideoProcessor:
         if self.img_dir_path != "":
             # Get list of image files in directory
             cycled_list = itertools.cycle(self.image_files)
+
+
         root.withdraw()
-        # Loop through each image file and process video
-        for i, vid_file in enumerate(self.video_files):
-            try:
-                # Get video and audio clips
-                if self.mode == "manual":
-                    video_clip = VideoFileClip(os.path.join(self.file_path, self.vid_params[i][0]))
-                else:
-                    video_clip = VideoFileClip(os.path.join(self.file_path,vid_file))
-                audio_clip = video_clip.audio
-
-                # Get width and height of video clip
-                width, height = video_clip.size
-
-                # если не указано изображение
+        # для многопоточности
+        pool = multiprocessing.Pool(processes=self.thread_scale.get())
+        # func = partial(self.start_process)
+        if self.mode == "manual":
+            args_list = []
+            for i, vid_file in enumerate(self.video_files):
+                args_list.append([vid_file,\
+                    self.img_dir_path, self.vid_params[i], None, None, None, None, None, self.bitrate, self.preset,\
+                    self.codec_choice.get(), self.default_bitrate, self.file_path, self.mode, self.auto_bitrate.get(),\
+                    ""
+                    ])
                 if self.img_dir_path != "":
-                    # Get full path of image file
-                    img_name = next(cycled_list)
-                    img_path = os.path.join(self.img_dir_path, img_name)
-                    # Load image and resize
-                    img = ImageClip(img_path).resize((width, height))
+                    args_list[-1][-1] = next(cycled_list)
 
-                    # Set alpha of image
-                    if self.mode == "manual":
-                        img = img.set_opacity(self.vid_params[i][1])
-                    else:
-                        img = img.set_opacity(self.alpha)
-                if self.mode == "manual":
-                    video_clip_cropped = video_clip.crop(x1=self.vid_params[i][2], y1=self.vid_params[i][3], x2=self.vid_params[i][4], y2=self.vid_params[i][5])
-                else:
-                    video_clip_cropped = video_clip.crop(x1=self.crop_x*2, y1=self.crop_y*2, x2=int(self.crop_x_2*2), y2=self.crop_y*2+(self.crop_height*2))
-                video_resized = video_clip_cropped.resize((width, height))
-                # если не указано изображение
+            pool.map(start_process_wrapper, args_list)
+        else:
+            args_list = []
+
+            # формируем список аргументов, по которым будет идти обработка видео
+            for vid_file in self.video_files:
+                args_list.append([vid_file, self.img_dir_path, None,\
+                    self.crop_x, self.crop_y, self.crop_x_2, self.crop_height, \
+                    self.alpha, self.bitrate, self.preset, self.codec_choice.get(), self.default_bitrate, self.file_path,\
+                    self.mode, self.auto_bitrate.get(), ""
+                    ])
+
                 if self.img_dir_path != "":
-                    # Overlay image on video
-                    img = img.set_duration(video_resized.duration)
-                    final_video = CompositeVideoClip([video_resized, img])
-                else:
-                    final_video = video_resized
+                    args_list[-1][-1] = next(cycled_list)
 
-                # Set audio to the final video
-                final_video = final_video.set_audio(audio_clip)
+            pool.map(start_process_wrapper, args_list)
 
-                # Export video
-                if not os.path.isdir(os.path.normpath(os.path.join(self.file_path,"output"))):
-                    os.mkdir(os.path.normpath(os.path.join(self.file_path,"output")))
-                if self.mode == "manual":
-                    output_file = os.path.normpath(os.path.join(self.file_path, f"output/{os.path.splitext(self.vid_params[i][0])[0]}.mp4"))
-                else:
-                    output_file = os.path.normpath(os.path.join(self.file_path, f"output/{os.path.splitext(vid_file)[0]}.mp4"))
-                # определяем, какой кодек использовать
-                codec = None
-                if self.codec_choice.get() == "mpeg4":
-                    codec = "mpeg4"
-                bitrate = self.bitrate
-                if self.auto_bitrate.get():
-                    bitrate = self.default_bitrate
-                final_video.write_videofile(output_file, codec=codec, preset=self.preset, bitrate=f"{bitrate}k")
-            except:
-                print("Произошла ошибка при обработке видео!")
+        pool.close()
+        pool.join()
         #
         root.deiconify() # Показать окно
+
+
+        # CYCLED_LIST NEXT ПЕРЕДАВАТЬ В САМ ПРОЦЕСС ИЗВНЕ! ЗАМЕНИТЬ ПЕРЕДАВАЕМЫЕ АРГУМЕНТЫ В РУЧНОМ РЕЖИМЕ!
+
+def start_process_wrapper(args):
+    return start_process(*args)
+
+# def start_process(self, vid_file=""):
+def start_process(vid_file, img_dir_path, vid_params, crop_x, crop_y, crop_x_2, crop_height, alpha, bitrate, preset, codec, default_bitrate, file_path, mode, auto_bitrate, img_name):
+
+    # mode, img_dir_path, img_name, codec_choice, bitrate
+    print("запущен поток")
+
+
+    # try:
+       
+    if mode == "manual":
+        video_clip = VideoFileClip(os.path.join(file_path, vid_params[0]))
+    else:
+        video_clip = VideoFileClip(os.path.join(file_path, vid_file))
+    audio_clip = video_clip.audio
+
+    # Get width and height of video clip
+    width, height = video_clip.size
+
+    # если не указано изображение
+    if img_dir_path != "":
+        # Get full path of image file
+        img_path = os.path.join(img_dir_path, img_name)
+        # Load image and resize
+        img = ImageClip(img_path).resize((width, height))
+
+        # Set alpha of image
+        if mode == "manual":
+            img = img.set_opacity(vid_params[1])
+        else:
+            img = img.set_opacity(alpha)
+    if mode == "manual":
+        video_clip_cropped = video_clip.crop(x1=vid_params[2], y1=vid_params[3], x2=vid_params[4], y2=vid_params[5])
+    else:
+        video_clip_cropped = video_clip.crop(x1=crop_x*2, y1=crop_y*2, x2=int(crop_x_2*2), y2=crop_y*2+(crop_height*2))
+    video_resized = video_clip_cropped.resize((width, height))
+    # если не указано изображение
+    if img_dir_path != "":
+        # Overlay image on video
+        img = img.set_duration(video_resized.duration)
+        final_video = CompositeVideoClip([video_resized, img])
+    else:
+        final_video = video_resized
+
+    # Set audio to the final video
+    final_video = final_video.set_audio(audio_clip)
+
+    # Export video
+    if not os.path.isdir(os.path.normpath(os.path.join(file_path, "output"))):
+        os.mkdir(os.path.normpath(os.path.join(file_path, "output")))
+    if mode == "manual":
+        output_file = os.path.normpath(os.path.join(file_path, f"output/{os.path.splitext(vid_params[0])[0]}.mp4"))
+    else:
+        output_file = os.path.normpath(os.path.join(file_path, f"output/{os.path.splitext(vid_file)[0]}.mp4"))
+    
+    # определяем, какой кодек использовать
+    if codec == "auto":
+        codec = None
+    else:
+        codec = "mpeg4"
+
+    if auto_bitrate:
+        bitrate = default_bitrate
+    final_video.write_videofile(output_file, codec=codec, preset=preset, bitrate=f"{bitrate}k")
+
+    video_clip.close()
+
+    # except Exception as error:
+    #     print(f"Произошла ошибка при обработке видео: {error}")
+        
 
 if __name__ == "__main__":
 
